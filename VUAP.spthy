@@ -1,0 +1,120 @@
+theory VUAP
+
+begin
+
+builtins: hashing
+
+functions: h1/1, h2/1
+
+//Regisration of vehicles
+
+rule register_vehicle_credentials:
+let
+m=h(<~PWD>)
+n=h(<m,~delta,~Vehicle_ID>)
+y=h(<m,n>)
+C=h(<y>)
+in
+[Fr(~PWD), Fr(~delta), Fr(~Vehicle_ID)]
+--[]->
+[!LtVdK($Vehicle_driver,$KDC,<~PWD>),!LTK($KDC,~delta),!LTKTR($KDC,$TR,C),!LTKSC($KDC,$SC,<n>)]
+
+
+//initialise Vehicle driver
+
+rule initialise_vehicle_driver:
+
+[Fr(~id),!LtVdK(Vehicle_driver,KDC,<PWD>),!LTKSC(KDC,SC,<n>),!LTKTR(KDC,TR,C)]
+
+--[Create(Vehicle_driver, ~id), 
+Role('Vehicle_driver') ]->
+
+[St_Veh_dri_1(Vehicle_driver, ~id,PWD, KDC,TR,SC)]
+
+
+//initialise Tamper resistant module
+
+rule initialise_TR:
+[Fr(~id),!LTKTR(KDC,TR,C),!LtVdK(Vehicle_driver,KDC,<PWD>),!LTKSC(KDC,SC,<n>)]
+
+--[Create(TR, ~id), 
+Role('TR') ]->
+
+[St_TR_1(TR, ~id,C, KDC,Vehicle_driver,SC)]
+
+//initialise smart-card
+
+rule initialise_SC:
+
+[Fr(~id),!LTKSC(KDC,SC,<n>),!LTKTR(KDC,TR,C),!LtVdK(Vehicle_driver,KDC,<PWD>)]
+
+--[Create(SC, ~id), 
+Role('SC') ]->
+[St_SC_1(SC, ~id,n, KDC,Vehicle_driver,TR)]
+
+
+rule initialise_KDC:
+[Fr(~id),!LTK(KDC,delta),!LTKSC(KDC,SC,<n>),!LTKTR(KDC,TR,C),!LtVdK(Vehicle_driver,KDC,<PWD>)]
+--[Create(KDC, ~id), 
+Role('KDC') ]->
+
+[St_KDC_1(KDC, ~id,n, TR,Vehicle_driver,SC)]
+
+//vehicle_driver sends first message
+
+rule send_1:
+let
+m=h(<PWD>)
+y=h(<m,n>)
+M1=h(<h(<y>),~Tc>)
+in
+
+[Fr(~Tc),!LtVdK(Vehicle_driver,KDC,<PWD>),St_Veh_dri_1(Vehicle_driver, ~id,PWD, KDC,TR,SC),St_SC_1(SC, ~id,n, KDC,Vehicle_driver,TR)]
+--[Send(<Vehicle_driver,<~Tc,M1>>),
+ 
+Role('Vehicle_driver'),Secret(<Vehicle_driver, SC, PWD,n >),Commit_strongA(PWD)]->
+[St_Veh_dri_2(Vehicle_driver, ~id,PWD,~Tc, KDC,TR,SC),St_SC_2(SC, ~id,n,~Tc,M1, KDC,Vehicle_driver,TR),Out(<~Tc,M1>)]
+
+rule Recv_1:
+let
+m=h(<PWD>)
+y=h(<m,n>)
+M1=h(<h(<y>),Tc>)
+in
+[In(<Tc,M1>),!LTKTR(KDC,TR,C),!LTKSC(KDC,SC,<n>),St_TR_2(TR, ~id,C,PWD, KDC,Vehicle_driver,SC)]
+--[Receive(<TR,<n>>), Role('TR'),Check(<h(C,Tc),M1>),Running_strongA(PWD)]->
+[St_TR_3(TR, ~id,C,PWD,Tc,M1, KDC,Vehicle_driver,SC),St_Veh_dri_3(Vehicle_driver, ~id,PWD,Tc,M1, KDC,TR,SC)]
+
+//TR receives the message of vehicle
+
+
+//	SECURITY PROPERTIES
+
+
+lemma executable:
+all-traces
+"All Vehicle_driver  m #i. Send(<Vehicle_driver,<m>>)@i ==> Ex TR m #j. Receive(<TR,<m>>) @ j  "
+
+
+lemma Injectiveagreement_Vehicle:
+    " (All PWD #i .
+        Commit_strongA(PWD)@ #i
+        ==>
+        (Ex #j . Running_strongA(PWD) @ #j & #j < #i) &
+        (not (Ex #j . Commit_strongA(PWD) @ #j & not (#i = #j)))
+    )"
+
+
+lemma secrecy:
+all-traces
+
+  " 
+All Vehicle_driver SC PWD n  #i.
+       Secret(<Vehicle_driver, SC, PWD,n >) @ i  ==> not(  Ex PWD n #r.K(<PWD,n>)@r)"
+
+end
+
+
+
+
+

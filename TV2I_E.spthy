@@ -1,0 +1,441 @@
+theory TV2I
+
+begin
+
+builtins: hashing, symmetric-encryption, bilinear-pairing, signing, diffie-hellman, multiset
+
+functions: h1/1, h2/1, inv/1 , senc/2, sdec/2
+
+
+
+//Regisration of vehicles
+
+rule register_longterm_keys:
+let
+
+SID=h(~delta,~d)
+
+in
+
+
+[Fr(~LVK), Fr(~delta), Fr(~Kc), Fr(~d), Fr(~epsilon)]
+--[]->
+[!LtkVS($Vehicle,$KDC,<~LVK,SID, ~Kc>), !LTS($KDC,<~delta,~d,~epsilon>)]
+
+
+
+//Regisration of RSUs
+rule register_RSUs:
+
+[Fr(~LRSUi),Fr(~LRSUiM1),Fr(~LRSUiP1)]
+--[]->
+[!LtRK($RSUi,$KDC,~LRSUi),!LtRMK($RSUiM1,$KDC,~LRSUiM1), !LtRPK($RSUiP1,$KDC,~LRSUiP1)]
+
+
+//Generation of groupkeys
+
+rule initial_groupkey:
+
+let
+GKpart2=h(~lambda,~Vergk,Kc)
+t=h(<GKpart2,epsilon>)
+s=inv(t)
+GKpart1=pmult(s,'P')
+
+in
+[Fr(~lambda),Fr(~Vergk),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),!LTS(KDC,<delta,d,epsilon>)]
+--[]->
+[!EK(KDC,~lambda,~Vergk),!GK(KDC,Vehicle,$RSUi,$RSUiP1,$RSUiM1,GKpart2,GKpart1,~Vergk)]
+
+
+rule new_groupkey:
+
+let
+NGKpart2=h(~Nlambda,~NVergk,Kc)
+
+Nt=h(<NGKpart2,epsilon>)
+sN=inv(<Nt>)
+NGKpart1=pmult(sN,'P')
+
+in
+[Fr(~Nlambda),Fr(~NVergk),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),!LTS(KDC,<delta,d,epsilon>)]
+--[]->
+[!EKN(KDC,~Nlambda,~NVergk),!NGK(KDC,NGKpart2,NGKpart1,~NVergk)]
+
+
+//Vehicle, RSUs and KDC are initialised by binding with long-term keys
+
+rule initialise_vehicle:
+
+[Fr(~id),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>)]
+
+--[Create(Vehicle, ~id), 
+Role('Vehicle') ]->
+
+[St_Veh_1(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,RSUi,RSUiM1,RSUiP1)]
+
+
+//initialise RSUi
+rule initialise_RSUi:
+[Fr(~id),!LtRK(RSUi,KDC,LRSUi),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk)]
+
+--[Create(RSUi, ~id), 
+Role('RSUi') ]->
+
+[St_RSUi_1(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk, KDC,Vehicle,RSUiM1,RSUiP1)]
+
+//initialise RSUi_minus_1
+
+rule initialise_RSUiM1:
+[Fr(~id),!LtRMK(RSUi,KDC,LRSUiM1),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk)]
+
+--[Create(RSUiM1, ~id), 
+Role('RSUiM1') ]->
+
+[St_RSUiM1_1(RSUiM1, ~id,LRSUiM1,GKpart2,GKpart1,Vergk, KDC,Vehicle,RSUiP1,RSUi)]
+
+
+//initialise RSUi_plus_1
+
+rule initialise_RSUiP1:
+[Fr(~id),!LtRPK(RSUi,KDC,LRSUiP1),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk)]
+
+--[Create(RSUiP1, ~id), 
+Role('RSUiP1') ]->
+
+[St_RSUiP1_1(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk, KDC,Vehicle,RSUiM1,RSUi)]
+
+//initialise KDC
+
+rule initialise_KDC:
+
+[ Fr(~id),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk),
+!EKN(KDC,Nlambda,NVergk),!NGK(KDC,NGKpart2,NGKpart1,NVergk),!LtRK(RSUi,KDC,LRSUi),!LtRMK(RSUiM1,KDC,LRSUiM1), !LtRPK(RSUiP1,KDC,LRSUiP1)]
+
+--[Create(KDC, ~id), 
+Role('KDC') ]->
+
+[St_KDC_1(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NVergk,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,Vehicle,RSUi,RSUiM1,RSUiP1)]
+
+
+
+
+
+//vehicle sends first message
+
+rule send_1:
+let
+T=h(LVK,GKpart2,GKpart1,Vergk)
+B=senc(<~S>,T)
+M=<SID,B>
+Sigma1=h(M,LVK)
+in
+
+[Fr(~S),St_Veh_1(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,RSUi,RSUiM1,RSUiP1),
+!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk),
+!LtkVS(Vehicle,KDC,<LVK,SID, Kc>)]
+--[Send(<Vehicle,<M,Sigma1>>),
+ Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC), 
+Role('Vehicle'),Running_strongB(SID)]->
+[St_Veh_2(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,T,B,M,~S,Sigma1,RSUi,RSUiM1,RSUiP1), Out(<M,Sigma1>)]
+
+//RSUi receives the message of vehicle
+
+rule Recv_1:
+let
+T=h(LVK,GKpart2,GKpart1,Vergk)
+B=senc(<~S>,T)
+M=<SID,B>
+Sigma1=h(M,LVK)
+
+in
+
+[In(<M,Sigma1>),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk),St_RSUi_1(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk, KDC,Vehicle,RSUiM1,RSUiP1)]
+--[Receive(<RSUi,<M,Sigma1>>),
+ Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC)
+ ]->
+[St_RSUi_2(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1, KDC,Vehicle,RSUiM1,RSUiP1)]
+
+//RSUi sends its first message
+
+rule send_2:
+let
+
+U=h(LRSUi,GKpart2,GKpart1,Vergk)
+Q=senc(<~R>,U)
+sigma2=h(Q,M,Sigma1,RSUi,LRSUi)
+in
+
+[Fr(~R),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk),!LtRK(RSUi,KDC,LRSUi),
+St_RSUi_2(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1, KDC,Vehicle,RSUiM1,RSUiP1)]
+--[Send(<RSUi,<M,Q,Sigma1,sigma2>>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC)
+]->
+[St_RSUi_3(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1,U,Q,sigma2, KDC,Vehicle,RSUiM1,RSUiP1),Out(<M,Q,Sigma1,sigma2>)]
+
+//KDC first receives its message
+
+
+rule Recv_2:
+
+let
+T=h(LVK,GKpart2,GKpart1,Vergk)
+B=senc(<S>,T)
+M=<SID,B>
+Sigma1=h(SID,B,LVK)
+U=h(LRSUi,GKpart2,GKpart1,Vergk)
+Q=senc(<R>,U)
+sigma2=h(Q,M,Sigma1,RSUi,LRSUi)
+in
+
+[In(<M,Q,Sigma1,sigma2>),!GK(KDC,Vehicle,RSUi,RSUiP1,RSUiM1,GKpart2,GKpart1,Vergk),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),!LtRK(RSUi,KDC,LRSUi), 
+St_KDC_1(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NVergk,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,Vehicle,RSUi,RSUiM1,RSUiP1)]
+--[Receive(<KDC,<M,Q,Sigma1,sigma2>>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Running_strongA(S)
+]->
+[St_KDC_2(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,M,Q,Sigma1, sigma2,S,R,Vehicle,RSUi,RSUiM1,RSUiP1)]
+
+//KDC fist sends the message
+
+
+rule send_3:
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,~ri,SID>,S)
+zetaR=senc(<NGKpart2,NGKpart1,NVergk>,R)
+Sigma_3=h(<zetaS,zetaR,LRSUi>)
+Sigma_3star=h(<zetaS,zetaR,LRSUiM1>)
+Sigma_3Dstar=h(<zetaS,zetaR,LRSUiP1>)
+in
+[Fr(~ri),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),!LtRK(RSUi,KDC,LRSUi),!LtRMK(RSUiM1,KDC,LRSUiM1), !LtRPK(RSUiP1,KDC,LRSUiP1),!EKN(KDC,Nlambda,NVergk),!NGK(KDC,NGKpart2,NGKpart1,NVergk),
+St_KDC_2(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,M,Q,Sigma1, sigma2,S,R,Vehicle,RSUi,RSUiM1,RSUiP1)]
+--[Send(<zetaS,zetaR,Sigma_3,Sigma_3star,Sigma_3Dstar>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Running_strongB(S),Secret(<KDC, NGKpart2,NGKpart1,NVergk>)
+]->
+[St_KDC_3(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,M,Q,Sigma1, sigma2,S,R,zetaS,zetaR,Sigma_3,Sigma_3star,Sigma_3Dstar,Vehicle,RSUi,RSUiM1,RSUiP1),
+Out(<zetaS,zetaR,Sigma_3,Sigma_3star,Sigma_3Dstar>)]
+
+//RSUs receive the key, RSUs receive the second message
+
+rule Recv_3_RSUi:
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,ri,SID>,S)
+zetaR=senc(<NGKpart2,NGKpart1,NVergk>,R)
+Sigma_3=h(<zetaS,zetaR,LRSUi>)
+
+
+in
+[In(<zetaS,zetaR,Sigma_3>),!LtRK(RSUi,KDC,LRSUi),St_RSUi_3(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1,U,Q,sigma2, KDC,Vehicle,RSUiM1,RSUiP1)]
+--[Receive(<zetaS,zetaR,Sigma_3>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Decrypt(<sdec(zetaR,R)>)]->
+
+[St_RSUi_4(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1,U,Q,sigma2,R,zetaR,zetaS,Sigma_3,NGKpart2,NGKpart1,NVergk,KDC,Vehicle,RSUiM1,RSUiP1)]
+
+rule Recv_3_RSUiP1:
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,ri,SID>,S)
+zetaR=senc(<NGKpart2,NGKpart1,NVergk>,R)
+
+Sigma_3Dstar=h(<zetaS,zetaR,LRSUiP1>)
+in
+[In(<zetaS,zetaR,Sigma_3Dstar>),!LtRPK(RSUiP1,KDC,LRSUiP1),St_RSUiP1_1(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk, KDC,Vehicle,RSUiM1,RSUi)]
+--[Receive(<zetaS,zetaR,Sigma_3Dstar>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC)]->
+
+[St_RSUiP1_2(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk,zetaS,zetaR,Sigma_3Dstar, KDC,Vehicle,RSUiM1,RSUi)]
+
+rule Recv_3_RSUiM1:
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,ri,SID>,S)
+zetaR=senc(<NGKpart2,NGKpart1,NVergk>,R)
+
+Sigma_3star=h(<zetaS,zetaR,LRSUiM1>)
+
+in
+[In(<zetaS,zetaR,Sigma_3star>),!LtRMK(RSUiM1,KDC,LRSUiM1),St_RSUiP1_1(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk, KDC,Vehicle,RSUiM1,RSUi)]
+--[Receive(<zetaS,zetaR,Sigma_3star>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC)]->
+[St_RSUiP1_2(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk,zetaS,zetaR,Sigma_3star, KDC,Vehicle,RSUiM1,RSUi)]
+
+
+//RSUi sends the second message
+
+rule send_4:
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,ri,SID>,S)
+in
+[St_RSUi_4(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1,U,Q,sigma2,R,zetaR,zetaS,Sigma_3,NGKpart2,NGKpart1,NVergk,KDC,Vehicle,RSUiM1,RSUiP1)]
+--[Send(<zetaS>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Secret(<RSUi, NGKpart2,NGKpart1>)]->
+[St_RSUi_5(RSUi, ~id,LRSUi,GKpart2,GKpart1,Vergk,M,Sigma1,U,Q,sigma2,zetaR,zetaS,Sigma_3,NGKpart2,NGKpart1,NVergk, KDC,Vehicle,RSUiM1,RSUiP1), Out(<zetaS>)]
+
+//Vehicle receives first message
+
+rule Recv_4:
+
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,ri,SID>,S)
+in
+
+[In(zetaS), St_Veh_2(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,T,B,M,S,Sigma1,RSUi,RSUiM1,RSUiP1)]
+--[Receive(<zetaS>),
+
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Decrypt(<sdec(zetaS,S)>)]->
+[St_Veh_3(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,T,B,M,S,NGKpart2,NGKpart1,NVergk,ri,Sigma1,zetaS,RSUi,RSUiM1,RSUiP1)]
+
+//Vehicle sends second message
+rule send_5:
+
+let
+zetaS=senc(<NGKpart2,NGKpart1,NVergk,ri,SID>,S)
+SIDstar=h(<ri,SID,NGKpart2,NGKpart1,NVergk>)
+Sigma_4=h(<zetaS,SIDstar,LVK>)
+in
+[!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),St_Veh_3(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,T,B,M,S,NGKpart2,NGKpart1,NVergk,ri,Sigma1,zetaS,RSUi,RSUiM1,RSUiP1)]
+--[Send(<Sigma_4>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Commit_strongA(S),Secret(<Vehicle, NGKpart2,NGKpart1>), Unique(SIDstar)]->
+[Out(Sigma_4),St_Veh_4(Vehicle, ~id,LVK,Kc,GKpart2,GKpart1,Vergk,SID, KDC,T,B,M,S,NGKpart2,NGKpart1,NVergk,ri,Sigma1,zetaS,Sigma_4,RSUi,RSUiM1,RSUiP1)] 
+
+//Let RSUiP1 receives the message due to vehicle mobility
+rule Recv_5:
+
+let
+Sigma_4=h(<zetaS,SIDstar,LVK>)
+
+in
+[In(Sigma_4),St_RSUiP1_2(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk,zetaS,zetaR,Sigma_3Dstar, KDC,Vehicle,RSUiM1,RSUi)]
+--[Receive(<Sigma_4>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC)]->
+[St_RSUiP1_3(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk,zetaS,zetaR,Sigma_3Dstar,Sigma_4, KDC,Vehicle,RSUiM1,RSUi)]
+
+//RSUiP1 sends sigma5
+
+rule send_6:
+let
+Sigma_4=h(<zetaS,SIDstar,LVK>)
+Sigma_5=h(<Sigma_4, Sigma_3Dstar,LRSUiP1>)
+
+in
+[St_RSUiP1_3(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk,zetaS,zetaR,Sigma_3Dstar,Sigma_4, KDC,Vehicle,RSUiM1,RSUi),!LtRPK(RSUi,KDC,LRSUiP1)]
+--[Send(<Sigma_4,Sigma_5,RSUiP1>),
+Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC)]->
+[Out(<Sigma_4,Sigma_5,LRSUiP1>),St_RSUiP1_4(RSUiP1, ~id,LRSUiP1,GKpart2,GKpart1,Vergk,zetaS,zetaR,Sigma_3Dstar,Sigma_4,Sigma_5, KDC,Vehicle,RSUiM1,RSUi)]
+
+//KDC performs the key confirmation sstep
+rule Recv_6:
+let
+Sigma_4=h(<zetaS,SIDstar,LVK>)
+Sigma_5=h(<Sigma_4, Sigma_3Dstar,LRSUiP1>)
+in
+[In(<Sigma_4,Sigma_5,LRSUiP1>),!LtRPK(RSUi,KDC,LRSUiP1),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),St_KDC_3(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,M,Q,Sigma1, sigma2,S,R,zetaS,zetaR,Sigma_3,Sigma_3star,Sigma_3Dstar,Vehicle,RSUi,RSUiM1,RSUiP1)]
+--[Receive(<Sigma_4,Sigma_5,RSUiP1>),Honest(Vehicle), Honest(RSUi),Honest(RSUiP1),Honest(RSUiM1), Honest(KDC),Commit_strongB(S)]->
+[St_KDC_4(KDC,~id,LVK,Kc,SID,GKpart2,GKpart1,Vergk,Nlambda,NGKpart2,NGKpart1,NVergk,LRSUi,LRSUiM1,LRSUiP1,M,Q,Sigma1, sigma2,S,R,zetaS,zetaR,Sigma_3,Sigma_3star,Sigma_3Dstar,Sigma_4,Sigma_5,Vehicle,RSUi,RSUiM1,RSUiP1)]
+
+
+
+rule KKS:
+
+let
+AGKpart2=h(~Alambda,~AVergk,Kc)
+
+At=h(<AGKpart2,epsilon>)
+sA=inv(<At>)
+AGKpart1=pmult(sA,'P')
+
+in
+[Fr(~Alambda),Fr(~AVergk),!LtkVS(Vehicle,KDC,<LVK,SID, Kc>),!LTS(KDC,<delta,d,epsilon>),!LtRK(RSUi,KDC,LRSUi)]
+--[SesRev(Vehicle),SesRev(RSUi)]->
+[!EKA(KDC,~Alambda,~AVergk),!AGK(KDC,Vehicle,RSUi,AGKpart2,AGKpart1,~AVergk), Out(<~Alambda,~AVergk,AGKpart2,AGKpart1>)]
+
+
+
+
+
+
+
+//	SECURITY PROPERTIES
+
+
+lemma executable:
+exists-trace
+"(Ex Vehicle RSUi KDC  m #i #j #k. Send(<Vehicle,<m>>)@i &Receive(<RSUi,m>) @k & Receive(<KDC,<m>>) @ j  )"
+
+lemma Injectiveagreement_Vehicle:
+    " (All S #i .
+        Commit_strongA(S)@ #i
+        ==>
+        (Ex #j . Running_strongA(S) @ #j & #j < #i) &
+        (not (Ex #j . Commit_strongA(S) @ #j & not (#i = #j)))
+    )"
+
+
+
+
+lemma Injectiveagreement_KDC:
+   " (All S #i .
+       Commit_strongB(S)@ #i
+       ==>
+        (Ex #j . Running_strongB(S) @ #j & #j < #i) &
+        (not (Ex #j . Commit_strongB(S) @ #j & not (#i = #j))))"
+
+lemma Vehicle_secrecy:
+all-traces
+
+  " 
+All Vehicle NGKpart2 NGKpart1  #i.
+       Secret(<Vehicle, NGKpart2,NGKpart1>) @ i  ==> not(  Ex NGKpart2 NGKpart1 #r.K(<NGKpart2,NGKpart1>)@r)"
+lemma RSUi_secrecy:
+all-traces
+
+ "All RSUi NGKpart2 NGKpart1  #i.
+      Secret(<RSUi, NGKpart2,NGKpart1>) @ i  ==> not( 
+        
+      Ex NGKpart2 NGKpart1 #r.K(<NGKpart2,NGKpart1>)@r)"
+
+lemma KKS_vehicle:
+all-traces
+
+  " 
+All Vehicle  NGKpart2 NGKpart1 #i #m.
+        Secret(<Vehicle, NGKpart2,NGKpart1>) @ i & SesRev(Vehicle) @ m ==> not( 
+      
+       Ex NGKpart2 NGKpart1 #r.K(<NGKpart2,NGKpart1>)@r )"
+
+lemma KKS_RSUi:
+all-traces
+
+  " 
+All RSUi  NGKpart2 NGKpart1 #i #m.
+        Secret(<RSUi, NGKpart2,NGKpart1>) @ i & SesRev(RSUi) @ m ==> not( 
+      
+      Ex NGKpart2 NGKpart1 #r.K(<NGKpart2,NGKpart1>)@r )"
+
+lemma PFS:
+all-traces
+"All Vehicle NGKpart2 NGKpart1 Kc LVK LRSUi #i #m. Secret(<Vehicle, NGKpart2,NGKpart1>) @ i & KU(<Kc,LVK, LRSUi>)@ m ==> not( 
+      
+       Ex NGKpart2 NGKpart1 #r.K(<NGKpart2,NGKpart1>)@r )
+
+
+"
+
+
+lemma Anonymity:
+exists-trace
+"
+not(Ex Vehicles SIDstar #m. K(<Vehicles,SIDstar>) @ m)
+"
+
+lemma Unlinkability:
+all-traces
+"
+All  #i #m SIDstar ri. Unique(SIDstar) @ i & Unique(SIDstar) @ m & K(<ri>) @ i & K(<ri>) @ m==> #i=#m
+"
+
+
+
+end
+
+
+
+
+
